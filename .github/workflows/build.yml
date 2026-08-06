@@ -1,0 +1,56 @@
+name: Build e publicar dashboard
+
+on:
+  # Gatilho do cron-job.org (a cada 3h). Ver README.
+  repository_dispatch:
+    types: [rebuild]
+  # Botao "Run workflow" na aba Actions.
+  workflow_dispatch:
+  # Rede de seguranca: o cron do proprio GitHub tambem tenta de 3 em 3 horas.
+  # E "best effort" (a fila do GitHub atrasa ou pula execucoes), por isso o
+  # cron-job.org continua sendo o gatilho principal.
+  schedule:
+    - cron: "7 */3 * * *"
+  push:
+    branches: [main]
+
+# Permissoes minimas: o proprio GITHUB_TOKEN da Action publica no Pages.
+# Nenhum personal access token e necessario neste repositorio.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Se dois gatilhos coincidirem, deixa o mais recente terminar.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Gerar dist/ a partir das planilhas
+        run: python build.py
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
