@@ -196,6 +196,23 @@ button,select,input{font:inherit;color:inherit}
 .pielegend .pl{color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pielegend b{color:var(--ink-1);font-variant-numeric:tabular-nums}
 .pielegend .pp{color:var(--ink-3);width:34px;text-align:right;font-variant-numeric:tabular-nums}
+/* drill: blocos campanhas/conjuntos/anúncios + evolução + filtro dinâmico */
+.drill-block{margin-top:20px}
+.drill-block:first-of-type{margin-top:6px}
+.drill-block>h3{font-size:14px;font-weight:650;color:var(--ink-1);margin:0 0 8px}
+.evo{margin-top:8px}
+.evolegend{display:flex;flex-wrap:wrap;gap:6px 9px;margin-top:8px;justify-content:center}
+.evolegend button{appearance:none;border:1px solid var(--ring);background:var(--card);color:var(--ink-2);border-radius:999px;padding:3px 10px;font:inherit;font-size:11.5px;font-weight:550;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:opacity .12s}
+.evolegend button.off{opacity:.4;text-decoration:line-through}
+.evolegend i{width:9px;height:9px;border-radius:2px;flex:none}
+.evolegend i.ln{width:14px;height:2px;border-radius:0}
+table.selectable tbody tr.selrow{cursor:pointer}
+table.selectable tbody tr.selrow:hover td{background:color-mix(in srgb,var(--series-1) 9%,transparent)}
+table.selectable tbody tr.sel td{background:color-mix(in srgb,var(--brand) 16%,transparent);font-weight:600;color:var(--ink-1)}
+table.selectable tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
+.selbanner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--brand-soft);border:1px solid color-mix(in srgb,var(--brand) 45%,transparent);border-radius:10px;padding:9px 14px;font-size:13px;color:var(--ink-1);margin-bottom:14px}
+.selbanner button{appearance:none;border:1px solid var(--ring);background:var(--card);color:var(--ink-1);border-radius:8px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.selbanner button:hover{background:var(--plane)}
 .chart .cross{stroke:var(--axis);stroke-width:1;stroke-dasharray:3 3;pointer-events:none;opacity:0}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 10px;font-size:12px;color:var(--ink-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -372,7 +389,8 @@ const escape_ = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",
 /* ============================================================ estado */
 let DATA = null;
 let STATE = {from:null, to:null, compare:true, metric:"spend", mode:"traffic", tab:"traffic",
-             treeSort:{key:"spend", dir:-1}, expanded:new Set(), goal:null, preset:"all"};
+             treeSort:{key:"spend", dir:-1}, expanded:new Set(), goal:null, preset:"all",
+             sel:null};   // filtro dinâmico: {c, s, a} — clique em campanha/conjunto/anúncio filtra a dash toda
 
 /* ============================================================ métricas
    Regra única do projeto: gasto = gasto bruto x imposto. Toda métrica derivada
@@ -421,11 +439,31 @@ function isTraffic(s){
 /* Aba "Visão Geral" (total) = todas as vendas; "Tráfego Pago" = só meta-ads. */
 const saleInScope = s => STATE.mode === "total" ? true : isTraffic(s);
 
+/* Filtro dinâmico por clique (campanha/conjunto/anúncio). Aplica-se a TODAS as
+   agregações da dash (funil, KPIs, pizzas, diária, regiões, relatório), menos as
+   3 tabelas de drill, que usam o filtro do PAI pra continuar mostrando os itens. */
+function inSel(o){
+  const f = STATE.sel;
+  if (!f) return true;
+  if (f.c != null && o.c !== f.c) return false;
+  if (f.s != null && o.s !== f.s) return false;
+  if (f.a != null && o.a !== f.a) return false;
+  return true;
+}
+function selLabel(){
+  const f = STATE.sel; if (!f) return "";
+  return f.a != null ? f.a : f.s != null ? f.s : f.c;
+}
+function selKind(){
+  const f = STATE.sel; if (!f) return "";
+  return f.a != null ? "anúncio" : f.s != null ? "conjunto" : "campanha";
+}
+
 function aggregate(from, to){
   const tax = DATA.meta.tax, t = blank();
-  for (const r of DATA.ads) if (r.d >= from && r.d <= to) accAd(t, r, tax);
+  for (const r of DATA.ads) if (r.d >= from && r.d <= to && inSel(r)) accAd(t, r, tax);
   let allSales = 0, allRev = 0, trafSales = 0, trafRev = 0;
-  for (const s of DATA.sales) if (s.d >= from && s.d <= to){
+  for (const s of DATA.sales) if (s.d >= from && s.d <= to && inSel(s)){
     allSales++; allRev += s.v;
     if (isTraffic(s)){ trafSales++; trafRev += s.v; }
     if (saleInScope(s)) accSale(t, s);       // a aba ativa decide o que entra nas métricas
@@ -459,8 +497,8 @@ function groupBy(level, from, to){
 function daily(from, to){
   const tax = DATA.meta.tax, map = new Map();
   for (let d = from; d <= to; d = addDays(d,1)) map.set(d, Object.assign(blank(), {d}));
-  for (const r of DATA.ads) if (map.has(r.d)) accAd(map.get(r.d), r, tax);
-  for (const s of DATA.sales) if (map.has(s.d) && saleInScope(s)) accSale(map.get(s.d), s);
+  for (const r of DATA.ads) if (map.has(r.d) && inSel(r)) accAd(map.get(r.d), r, tax);
+  for (const s of DATA.sales) if (map.has(s.d) && saleInScope(s) && inSel(s)) accSale(map.get(s.d), s);
   return [...map.values()].map(derive);
 }
 
@@ -481,8 +519,8 @@ function regionOf(adset){
 function groupByRegion(from, to){
   const tax = DATA.meta.tax, map = new Map();
   const touch = r => { let n = map.get(r); if (!n){ n = Object.assign(blank(), {region:r}); map.set(r, n); } return n; };
-  for (const a of DATA.ads) if (a.d >= from && a.d <= to) accAd(touch(regionOf(a.s)), a, tax);
-  for (const s of DATA.sales) if (s.d >= from && s.d <= to && saleInScope(s)) accSale(touch(regionOf(s.s)), s);
+  for (const a of DATA.ads) if (a.d >= from && a.d <= to && inSel(a)) accAd(touch(regionOf(a.s)), a, tax);
+  for (const s of DATA.sales) if (s.d >= from && s.d <= to && saleInScope(s) && inSel(s)) accSale(touch(regionOf(s.s)), s);
   return [...map.values()].map(derive);
 }
 const REGION_COLS = [
@@ -724,6 +762,7 @@ function setPeriod(from, to, preset){
 
 /* Decide qual visão renderizar conforme a aba ativa (dashboard × relatório). */
 function refresh(){
+  updateSelBanner();
   const rep = STATE.tab === "report";
   const reg = STATE.tab === "regions";
   const dv = document.getElementById("dashView"), rv = document.getElementById("reportView"), gv = document.getElementById("regionView");
@@ -849,7 +888,7 @@ function prettyAns(v){
 function breakdownDist(idx, from, to){
   const m = new Map();
   for (const s of DATA.sales){
-    if (s.d < from || s.d > to || !saleInScope(s)) continue;
+    if (s.d < from || s.d > to || !saleInScope(s) || !inSel(s)) continue;
     const lbl = prettyAns((s.bd || [])[idx]);
     m.set(lbl, (m.get(lbl) || 0) + 1);
   }
@@ -984,7 +1023,7 @@ function render(){
   document.getElementById("metricTitle").textContent = met.label + " por dia";
 
   renderDaily();
-  renderOpt();
+  renderDrill();
 }
 
 /* ---- delta compacto (só a seta + %) p/ o hero ---- */
@@ -1096,9 +1135,9 @@ function buildTree(from, to){
   const set  = (cp,s) => { let n = cp.kids.get(s); if (!n){ n = mk(s); cp.kids.set(s, n); } return n; };
   const ad   = (as,a) => { let n = as.kids.get(a); if (!n){ n = mk(a); as.kids.set(a, n); } return n; };
 
-  for (const r of DATA.ads) if (r.d >= from && r.d <= to) accAd(ad(set(camp(r.c), r.s), r.a), r, tax);
+  for (const r of DATA.ads) if (r.d >= from && r.d <= to && inSel(r)) accAd(ad(set(camp(r.c), r.s), r.a), r, tax);
   const un = blank();
-  for (const s of DATA.sales) if (s.d >= from && s.d <= to && saleInScope(s)){
+  for (const s of DATA.sales) if (s.d >= from && s.d <= to && saleInScope(s) && inSel(s)){
     if (s.m === "ad")            accSale(ad(set(camp(s.c), s.s), s.a), s);
     else if (s.m === "adset")    accSale(set(camp(s.c), s.s), s);
     else if (s.m === "campaign") accSale(camp(s.c), s);
@@ -1136,72 +1175,159 @@ function flatten(camps){
   return out;
 }
 
-function renderOpt(){
-  const {camps, un} = buildTree(STATE.from, STATE.to);
-  const {key, dir} = STATE.treeSort;
+/* ============================================================ drill: campanhas · conjuntos · anúncios
+   3 blocos separados; clicar numa linha filtra a dashboard inteira (STATE.sel) e
+   afunila os blocos em cascata. Cada bloco tem um gráfico de evolução diária. */
 
-  // Escala de cor calibrada no nível de campanha (baseline estável).
-  const scales = {};
-  for (const c of TCOLS.filter(c => c.scale)){
-    const vals = camps.filter(r => r.spend > 0 && r[c.k] !== null && isFinite(r[c.k])).map(r => r[c.k]);
-    if (vals.length > 1) scales[c.k] = {min:Math.min(...vals), max:Math.max(...vals), dir:c.scale};
+/* Diária de um escopo específico (pra o gráfico embaixo de cada bloco). */
+function dailyScoped(from, to, scope){
+  const tax = DATA.meta.tax, map = new Map();
+  for (let d = from; d <= to; d = addDays(d,1)) map.set(d, Object.assign(blank(), {d}));
+  const ok = o => (scope.c == null || o.c === scope.c) && (scope.s == null || o.s === scope.s) && (scope.a == null || o.a === scope.a);
+  for (const r of DATA.ads) if (map.has(r.d) && ok(r)) accAd(map.get(r.d), r, tax);
+  for (const s of DATA.sales) if (map.has(s.d) && saleInScope(s) && ok(s)) accSale(map.get(s.d), s);
+  return [...map.values()].map(derive);
+}
+
+/* Agrupa por nível, respeitando o PAI da seleção (não o item em si), pra o bloco
+   continuar mostrando os itens daquele nível. campaign=todos · adset=da campanha
+   selecionada · ad=do conjunto selecionado. */
+function groupLevel(level, from, to){
+  const tax = DATA.meta.tax, map = new Map(), sel = STATE.sel;
+  const parentOk = o => {
+    if (!sel) return true;
+    if (level !== "campaign" && sel.c != null && o.c !== sel.c) return false;
+    if (level === "ad" && sel.s != null && o.s !== sel.s) return false;
+    return true;
+  };
+  const keyOf = o => level === "campaign" ? o.c : level === "adset" ? o.c + " ▸ " + o.s : o.c + " ▸ " + o.s + " ▸ " + o.a;
+  const labelOf = o => level === "campaign" ? o.c : level === "adset" ? o.s : o.a;
+  const touch = o => { const k = keyOf(o); let n = map.get(k); if (!n){ n = Object.assign(blank(), {key:k, label:labelOf(o), c:o.c, s:o.s, a:o.a}); map.set(k, n); } return n; };
+  for (const r of DATA.ads) if (r.d >= from && r.d <= to && parentOk(r)) accAd(touch(r), r, tax);
+  for (const s of DATA.sales) if (s.d >= from && s.d <= to && saleInScope(s) && attributed(s) && parentOk(s)) accSale(touch(s), s);
+  return [...map.values()].map(derive);
+}
+
+/* Gráfico de evolução diária (formato pedido): barras Leads + Leads Qualif. (eixo
+   esq., contagem) · linhas Investimento, CPL e CPL Qualif. (eixo dir., R$). Tooltip
+   com tudo por dia; legenda liga/desliga cada série. */
+function evoChart(host, rows){
+  host.innerHTML = "";
+  const hidden = host._hidden || (host._hidden = new Set());
+  const W = Math.max(340, host.clientWidth || 560), H = 250;
+  const P = {t:22, r:54, b:26, l:46};
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const bars  = [{key:"sales",  name:"Leads",         color:"var(--f3)"},
+                 {key:"salesQ", name:"Leads Qualif.", color:"var(--good)"}];
+  const lines = [{key:"spend",   name:"Investimento", color:"var(--critical)", fmt:M.money0},
+                 {key:"cac",     name:"CPL",          color:"var(--ink-1)",    fmt:M.money},
+                 {key:"cplQual", name:"CPL Qualif.",  color:"var(--warning)",  fmt:M.money}];
+  const vb = bars.filter(b => !hidden.has(b.key)), vl = lines.filter(l => !hidden.has(l.key));
+  const svg = el("svg", {class:"chart", viewBox:`0 0 ${W} ${H}`, width:"100%", height:H, role:"img"});
+  const n = rows.length;
+  const leftMax  = niceMax(Math.max(...rows.flatMap(r => vb.map(b => r[b.key] || 0)), 0));
+  const rightMax = niceMax(Math.max(...rows.flatMap(r => vl.map(l => { const v = r[l.key]; return v != null && isFinite(v) ? v : 0; })), 0));
+  const yL = v => P.t + ih - (leftMax  > 0 ? (v/leftMax)  * ih : 0);
+  const yR = v => P.t + ih - (rightMax > 0 ? (v/rightMax) * ih : 0);
+  for (const t of ticks(leftMax)){
+    svg.appendChild(el("line", {class:"gl", x1:P.l, x2:P.l+iw, y1:yL(t), y2:yL(t)}));
+    const tx = el("text", {x:P.l-6, y:yL(t)+4, "text-anchor":"end"}); tx.textContent = M.int(t); svg.appendChild(tx);
   }
-  const shade = (k, v) => {
-    const s = scales[k];
-    if (!s || v === null || !isFinite(v) || s.max === s.min) return "";
-    let t = (v - s.min)/(s.max - s.min);
-    if (s.dir === "low") t = 1 - t;
-    if (t < 0.15) return "";
-    return `background:color-mix(in srgb,var(--scale-ink) ${Math.round(t*32)}%,transparent)`;
-  };
-
-  const head = TCOLS.map(c => {
-    const active = key === c.k;
-    const arw = active ? (dir === 1 ? "▲" : "▼") : "▾";
-    return `<th data-k="${c.k}"${active ? " data-active" : ""} title="${c.hint || "ordenar"}">${c.label}<span class="arw">${arw}</span></th>`;
-  }).join("");
-
-  const rowHTML = r => {
-    const exp = r.level < 2 && r.kids && r.kids.length > 0;
-    const open = STATE.expanded.has(r.key);
-    const caret = `<span class="caret">${exp ? "▸" : ""}</span>`;
-    return `<tr class="lv${r.level}${exp ? " exp" : ""}${open ? " open" : ""}" data-key="${encodeURIComponent(r.key)}">
-      <td><span class="nm">${caret}${escape_(r.label)}</span></td>
-      ${TCOLS.slice(1).map(c => {
-        const st = c.scale ? shade(c.k, r[c.k]) : "";
-        const v = c.fmt(r[c.k]);
-        return `<td>${st ? `<span class="cell-scale" style="${st}">${v}</span>` : v}</td>`;
-      }).join("")}
-    </tr>`;
-  };
-
-  const tot = derive(camps.reduce((t,r) => { for (const k of RAW) t[k] += r[k]; return t; }, blank()));
-  const rows = flatten(camps);
-  const unLabel = STATE.mode === "total"
-    ? "— sem campanha (orgânico/direto ou UTM não casada) —"
-    : "— tráfego sem campanha casada (UTM não bateu) —";
-  const unRow = un.sales > 0
-    ? `<tr class="lv0 muted-row"><td><span class="nm"><span class="caret"></span>${unLabel}</span></td>${TCOLS.slice(1).map(c => `<td>${c.k === "sales" || c.k === "rev" ? c.fmt(un[c.k]) : "—"}</td>`).join("")}</tr>`
-    : "";
-
-  document.getElementById("tbl").innerHTML = `
-    <thead><tr>${head}</tr></thead>
-    <tbody>${rows.map(rowHTML).join("") || `<tr><td colspan="${TCOLS.length}" style="text-align:center;color:var(--ink-3);padding:32px">Nenhum dado no período.</td></tr>`}${unRow}</tbody>
-    <tfoot><tr><td>Total — ${camps.length} campanha(s)</td>${TCOLS.slice(1).map(c => `<td>${c.fmt(tot[c.k])}</td>`).join("")}</tr></tfoot>`;
-
-  document.querySelectorAll("#tbl tbody tr.exp").forEach(tr => {
-    tr.querySelector("td:first-child").onclick = () => {
-      const k = decodeURIComponent(tr.dataset.key);
-      if (STATE.expanded.has(k)) STATE.expanded.delete(k); else STATE.expanded.add(k);
-      renderOpt();
-    };
+  for (const t of ticks(rightMax)){
+    const tx = el("text", {x:P.l+iw+6, y:yR(t)+4, "text-anchor":"start"}); tx.textContent = M.money0(t); svg.appendChild(tx);
+  }
+  svg.appendChild(el("line", {class:"ax", x1:P.l, x2:P.l+iw, y1:P.t+ih, y2:P.t+ih}));
+  const slot = iw/Math.max(1, n), nb = Math.max(1, vb.length);
+  const groupW = Math.min(slot - 3, nb > 1 ? 26 : 16), bw = Math.max(2, groupW/nb - 1), step = labelStep(n, iw);
+  rows.forEach((r,i) => {
+    const cx = P.l + slot*i + slot/2;
+    vb.forEach((b,bi) => {
+      const v = r[b.key] || 0, h = Math.max(v > 0 ? 1.5 : 0, P.t + ih - yL(v));
+      const x = cx - groupW/2 + bi*(groupW/nb) + (groupW/nb - bw)/2;
+      if (h > 0) svg.appendChild(el("rect", {x, y:P.t+ih-h, width:bw, height:h, fill:b.color, rx:Math.min(3,bw/2)}));
+    });
+    if (i % step === 0 || i === n-1){ const tx = el("text", {x:cx, y:H-7, "text-anchor":"middle"}); tx.textContent = dayBR(r.d); svg.appendChild(tx); }
   });
-  document.querySelectorAll("#tbl thead th").forEach(th => {
-    th.onclick = () => {
-      const k = th.dataset.k;
-      STATE.treeSort = (key === k) ? {key:k, dir:-dir} : {key:k, dir:k === "label" ? 1 : -1};
-      renderOpt();
-    };
+  vl.forEach(l => {
+    const pts = rows.map((r,i) => { const v = r[l.key]; return (v == null || !isFinite(v)) ? null : [P.l+slot*i+slot/2, yR(v)]; });
+    let seg = [], segs = []; pts.forEach(p => { if (p) seg.push(p); else if (seg.length){ segs.push(seg); seg = []; } }); if (seg.length) segs.push(seg);
+    segs.forEach(s => { const d = s.map((p,i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+      svg.appendChild(el("path", {d, fill:"none", stroke:l.color, "stroke-width":2, "stroke-linejoin":"round", "stroke-linecap":"round"})); });
+    if (n <= 45) pts.forEach(p => { if (p) svg.appendChild(el("circle", {cx:p[0], cy:p[1], r:3, fill:l.color, stroke:"var(--card)", "stroke-width":1.5})); });
+  });
+  const cross = el("line", {class:"cross", y1:P.t, y2:P.t+ih}); svg.appendChild(cross);
+  const hit = el("rect", {class:"hit", x:P.l-4, y:P.t, width:iw+8, height:ih});
+  hit.addEventListener("mousemove", ev => {
+    const box = svg.getBoundingClientRect();
+    const rel = ((ev.clientX - box.left)/box.width)*W;
+    const i = Math.max(0, Math.min(n-1, Math.round(n === 1 ? 0 : ((rel-P.l)/iw)*(n-1))));
+    cross.setAttribute("x1", P.l+slot*i+slot/2); cross.setAttribute("x2", P.l+slot*i+slot/2); cross.style.opacity = 1;
+    const r = rows[i];
+    showTip(`<b>${dayFull(r.d)}</b>` + bars.concat(lines).map(sd => {
+      const isL = lines.includes(sd), val = isL ? sd.fmt(r[sd.key]) : M.int(r[sd.key]);
+      return `<div class="r"><em><i style="background:${sd.color}"></i>${sd.name}</em><strong>${val}</strong></div>`;
+    }).join(""), ev);
+  });
+  hit.addEventListener("mouseleave", () => { cross.style.opacity = 0; hideTip(); });
+  svg.appendChild(hit); host.appendChild(svg);
+  const leg = document.createElement("div"); leg.className = "evolegend";
+  leg.innerHTML = bars.concat(lines).map(sd => { const off = hidden.has(sd.key), isL = lines.includes(sd);
+    return `<button data-k="${sd.key}" class="${off ? "off" : ""}"><i class="${isL ? "ln" : ""}" style="background:${sd.color}"></i>${sd.name}</button>`; }).join("");
+  leg.querySelectorAll("button").forEach(b => b.onclick = () => { const k = b.dataset.k; hidden.has(k) ? hidden.delete(k) : hidden.add(k); evoChart(host, rows); });
+  host.appendChild(leg);
+}
+
+/* Selo do filtro ativo (compartilhado por todas as abas). */
+function updateSelBanner(){
+  const b = document.getElementById("selBanner"); if (!b) return;
+  if (!STATE.sel){ b.hidden = true; b.innerHTML = ""; return; }
+  b.hidden = false;
+  b.innerHTML = `<span>🔎 Filtrando por ${selKind()}: <b>${escape_(selLabel())}</b> — toda a dashboard mostra só este item.</span>`
+    + `<button id="selClear">limpar filtro ✕</button>`;
+  document.getElementById("selClear").onclick = () => { STATE.sel = null; refresh(); };
+}
+
+function renderDrill(){
+  const {from, to} = STATE, f = STATE.sel;
+  const blocks = [
+    {id:"Camp", first:"Campanha", level:"campaign", scope:{c:f && f.c, s:null,      a:null}},
+    {id:"Set",  first:"Conjunto", level:"adset",    scope:{c:f && f.c, s:f && f.s,   a:null}},
+    {id:"Ad",   first:"Anúncio",  level:"ad",       scope:{c:f && f.c, s:f && f.s,   a:f && f.a}}
+  ];
+  const cols = METRIC_COLS;
+  blocks.forEach(bl => {
+    const rows = groupLevel(bl.level, from, to).sort((a,b) => b.spend - a.spend);
+    const scales = {};
+    for (const c of cols.filter(c => c.scale)){
+      const vals = rows.filter(r => r.spend > 0 && r[c.k] !== null && isFinite(r[c.k])).map(r => r[c.k]);
+      if (vals.length > 1) scales[c.k] = {min:Math.min(...vals), max:Math.max(...vals), dir:c.scale};
+    }
+    const shade = (k, v) => { const s = scales[k]; if (!s || v == null || !isFinite(v) || s.max === s.min) return "";
+      let t = (v - s.min)/(s.max - s.min); if (s.dir === "low") t = 1 - t; if (t < 0.15) return "";
+      return `background:color-mix(in srgb,var(--scale-ink) ${Math.round(t*32)}%,transparent)`; };
+    const isSel = r => f && (
+      (bl.level === "campaign" && f.c === r.c && f.s == null && f.a == null) ||
+      (bl.level === "adset"    && f.c === r.c && f.s === r.s && f.a == null) ||
+      (bl.level === "ad"       && f.c === r.c && f.s === r.s && f.a === r.a));
+    const head = `<th>${bl.first}</th>` + cols.map(c => `<th title="${c.hint || ""}">${c.label}</th>`).join("");
+    const body = rows.map(r => `<tr class="selrow${isSel(r) ? " sel" : ""}" data-c="${encodeURIComponent(r.c)}" data-s="${encodeURIComponent(r.s)}" data-a="${encodeURIComponent(r.a)}" data-lvl="${bl.level}">`
+      + `<td><span class="nm">${escape_(r.label)}</span></td>`
+      + cols.map(c => { const st = c.scale ? shade(c.k, r[c.k]) : ""; const v = c.fmt(r[c.k]); return `<td>${st ? `<span class="cell-scale" style="${st}">${v}</span>` : v}</td>`; }).join("")
+      + `</tr>`).join("");
+    const tot = derive(rows.reduce((t,r) => { for (const k of RAW) t[k] += (r[k] || 0); return t; }, blank()));
+    const foot = `<td>Total — ${rows.length}</td>` + cols.map(c => `<td>${c.fmt(tot[c.k])}</td>`).join("");
+    document.getElementById("tbl" + bl.id).innerHTML =
+      `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${cols.length+1}" style="text-align:center;color:var(--ink-3);padding:22px">Nenhum dado no período.</td></tr>`}</tbody><tfoot><tr>${foot}</tr></tfoot>`;
+    evoChart(document.getElementById("evo" + bl.id), dailyScoped(from, to, bl.scope));
+    document.querySelectorAll("#tbl" + bl.id + " tbody tr.selrow").forEach(tr => {
+      tr.onclick = () => {
+        const c = decodeURIComponent(tr.dataset.c), s = decodeURIComponent(tr.dataset.s), a = decodeURIComponent(tr.dataset.a), lvl = tr.dataset.lvl, cur = STATE.sel;
+        if (lvl === "campaign")   STATE.sel = (cur && cur.c === c && cur.s == null && cur.a == null) ? null : {c};
+        else if (lvl === "adset") STATE.sel = (cur && cur.c === c && cur.s === s && cur.a == null) ? {c} : {c, s};
+        else                      STATE.sel = (cur && cur.c === c && cur.s === s && cur.a === a) ? {c, s} : {c, s, a};
+        refresh();
+      };
+    });
   });
 }
 
@@ -1282,8 +1408,8 @@ function renderRegions(){
 function adsByName(from, to){
   const tax = DATA.meta.tax, map = new Map();
   const g = a => { let n = map.get(a); if (!n){ n = Object.assign(blank(), {label:a}); map.set(a, n); } return n; };
-  for (const r of DATA.ads) if (r.d >= from && r.d <= to) accAd(g(r.a), r, tax);
-  for (const s of DATA.sales) if (s.d >= from && s.d <= to && isTraffic(s) && s.m === "ad") accSale(g(s.a), s);
+  for (const r of DATA.ads) if (r.d >= from && r.d <= to && inSel(r)) accAd(g(r.a), r, tax);
+  for (const s of DATA.sales) if (s.d >= from && s.d <= to && isTraffic(s) && s.m === "ad" && inSel(s)) accSale(g(s.a), s);
   return [...map.values()].map(derive).filter(a => a.spend > 0 || a.sales > 0);
 }
 
@@ -1543,6 +1669,8 @@ function shell(){
       </div>
     </div>
 
+    <div id="selBanner" class="selbanner" hidden></div>
+
     <div id="dashView">
     <div class="panel"><div class="health" id="health"></div></div>
 
@@ -1591,14 +1719,26 @@ function shell(){
     </div>
 
     <div class="panel">
-      <h2>Otimização — Campanha › Conjunto › Anúncio</h2>
+      <h2>Otimização — Campanhas · Conjuntos · Anúncios</h2>
       <p class="note">
-        Clique numa <b style="color:var(--ink-1)">campanha</b> pra abrir os conjuntos, e num conjunto pra abrir os anúncios.
-        Clique nos cabeçalhos pra ordenar. CAC e ROAS coloridos (verde = melhor).
-        Só entram aqui as <b style="color:var(--ink-1)">vendas de tráfego (utm_source = ${escape_(m.traffic_source||"meta-ads")})</b>, agrupadas pela campanha de origem;
-        as de tráfego cuja UTM não casou aparecem em “tráfego sem campanha casada”. Vendas orgânicas/diretas não entram.
+        <b style="color:var(--ink-1)">Clique</b> em qualquer campanha, conjunto ou anúncio pra <b style="color:var(--ink-1)">filtrar a dashboard inteira</b> só por ele (o funil, os KPIs, as pizzas, a visão diária e as regiões passam a mostrar só esse item). Clicar de novo — ou em “limpar filtro” — remove.
+        Os três blocos <b style="color:var(--ink-1)">afunilam em cascata</b>: escolher uma campanha reduz os conjuntos e anúncios a ela. Embaixo de cada bloco, a evolução diária: barras = Leads e Leads Qualif.; linhas = Investimento, CPL e CPL Qualif.
       </p>
-      <div class="tblwrap"><table id="tbl" class="tree"></table></div>
+      <div class="drill-block">
+        <h3>Campanhas</h3>
+        <div class="tblwrap"><table id="tblCamp" class="daily selectable"></table></div>
+        <div class="evo" id="evoCamp"></div>
+      </div>
+      <div class="drill-block">
+        <h3>Conjuntos (Ad Sets)</h3>
+        <div class="tblwrap"><table id="tblSet" class="daily selectable"></table></div>
+        <div class="evo" id="evoSet"></div>
+      </div>
+      <div class="drill-block">
+        <h3>Anúncios</h3>
+        <div class="tblwrap"><table id="tblAd" class="daily selectable"></table></div>
+        <div class="evo" id="evoAd"></div>
+      </div>
     </div>
 
     ${(m.warnings||[]).map(w => `<div class="warn"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--warning)" stroke-width="1.6"><path d="M8 1.8 15 14H1L8 1.8Z" stroke-linejoin="round"/><path d="M8 6.2v3.4M8 11.8v.05" stroke-linecap="round"/></svg><span>${escape_(w)}</span></div>`).join("")}
