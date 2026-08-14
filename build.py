@@ -188,12 +188,25 @@ def load_sales(cfg, warnings):
     raw = sheet_csv(cfg["sales"]["spreadsheet_id"], cfg["sales"].get("sheet_name"))
     log(f"  planilha de vendas: {len(raw)} linhas")
 
-    qcfg = cfg["sales"].get("qualified") or {}
-    qcol = qcfg.get("column")
-    # respostas de formulario vem com underscore no lugar de espaco ("sim,_está");
+    # Qualificacao: aceita 1 ou mais perguntas. Forma nova:
+    #   "qualified": {"mode":"all"|"any", "conditions":[{"column":..,"yes_values":[..]}, ..]}
+    # Forma antiga (1 pergunta): {"column":.., "yes_values":[..]} — ainda suportada.
+    # Respostas de formulario vem com underscore no lugar de espaco ("sim,_está");
     # normaliza underscore->espaco para casar de forma robusta.
     qnorm = lambda s: norm(str(s or "").replace("_", " "))
-    qyes = {qnorm(x) for x in (qcfg.get("yes_values") or [])}
+    qcfg = cfg["sales"].get("qualified") or {}
+    qmode = (qcfg.get("mode") or "all").lower()
+    qconds = qcfg.get("conditions")
+    if not qconds and qcfg.get("column"):
+        qconds = [{"column": qcfg["column"], "yes_values": qcfg.get("yes_values") or []}]
+    qcond_sets = [(cd["column"], {qnorm(x) for x in (cd.get("yes_values") or [])}) for cd in (qconds or [])]
+
+    def is_qual(r):
+        if not qcond_sets:
+            return 0
+        hits = [qnorm(col(r, cc)) in yv for cc, yv in qcond_sets]
+        return 1 if (all(hits) if qmode == "all" else any(hits)) else 0
+
     bds = cfg["sales"].get("breakdowns") or []
 
     ok_status = {norm(s) for s in cfg["sales"].get("approved_status") or []}
@@ -215,7 +228,7 @@ def load_sales(cfg, warnings):
             "uc": re.sub(r"\s+", " ", str(col(r, c["utm_campaign"]) or "").strip()),
             "us": re.sub(r"\s+", " ", str(col(r, c["utm_adset"]) or "").strip()),
             "ua": re.sub(r"\s+", " ", str(col(r, c["utm_ad"]) or "").strip()),
-            "q": 1 if (qcol and qnorm(col(r, qcol)) in qyes) else 0,
+            "q": is_qual(r),
             "bd": [re.sub(r"\s+", " ", str(col(r, b["column"]) or "").strip()) for b in bds],
         })
     if refused:
@@ -292,33 +305,32 @@ def attribute(ads, sales, warnings):
 # ---------------------------------------------------------------- saida
 
 
-def main():
-    with open(os.path.join(ROOT, "config.json"), encoding="utf-8") as f:
-        cfg = json.load(f)
-
+def build_funnel(cfg, now):
+    """Baixa, cruza e monta o data.json de UM funil."""
     warnings = []
-    log("baixando planilhas (somente leitura)...")
     ads = load_ads(cfg, warnings)
     sales = load_sales(cfg, warnings)
     if not ads:
-        raise RuntimeError("a planilha de anuncios voltou vazia; abortando para nao publicar um dashboard em branco.")
+        raise RuntimeError(f"[{cfg.get('id','?')}] planilha de anuncios vazia; abortando.")
 
     match_counts = attribute(ads, sales, warnings)
-
     dates = [r["d"] for r in ads] + [r["d"] for r in sales]
-    now = datetime.now(timezone.utc)
 
     traffic_src = cfg["sales"].get("traffic_source", "meta-ads")
     traffic_sales = sum(1 for s in sales if norm(s.get("src", "")) == norm(traffic_src))
     if traffic_sales < len(sales):
         warnings.append(
-            f"{len(sales) - traffic_sales} venda(s) fora do tráfego (utm_source ≠ '{traffic_src}') — "
-            "orgânico/direto; entram só como referência, não no funil/CAC/ROAS."
+            f"{len(sales) - traffic_sales} lead(s) fora do trafego (utm_source != '{traffic_src}') — "
+            "organico/direto; entram so como referencia."
         )
 
     data = {
         "meta": {
+            "id": cfg.get("id"),
+            "menu_label": cfg.get("menu_label", cfg.get("title", "Funil")),
             "title": cfg.get("title", "Funil de Trafego"),
+            "goal": (float(cfg["goal"]) if cfg.get("goal") not in (None, "") else None),
+            "tabs": cfg.get("tabs", ["total", "traffic", "regions", "report"]),
             "platform": cfg.get("platform", "Meta Ads"),
             "currency": cfg.get("currency", "BRL"),
             "tax": float(cfg.get("tax_multiplier", 1.0)),
@@ -344,12 +356,42 @@ def main():
                    "q": s.get("q", 0), "bd": s.get("bd", [])} for s in sales],
     }
 
+    gross = sum(r["spend"] for r in ads)
+    log(f"  [{cfg.get('id')}] {data['meta']['date_min']}..{data['meta']['date_max']} | "
+        f"gasto x{data['meta']['tax']} R$ {gross * data['meta']['tax']:,.2f} | "
+        f"leads {len(sales)} | qualif {data['meta']['counts']['qualified']} | atrib {match_counts}")
+    for w in warnings:
+        log(f"    ! {w}")
+    return data
+
+
+def main():
+    with open(os.path.join(ROOT, "config.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    # Config nova = {"funnels":[...]}; config antiga (1 funil) tambem funciona.
+    funnels = cfg["funnels"] if isinstance(cfg, dict) and "funnels" in cfg else [cfg]
+    now = datetime.now(timezone.utc)
+    log(f"baixando planilhas (somente leitura) — {len(funnels)} funil(is)...")
+
     if os.path.isdir(DIST):
         shutil.rmtree(DIST)
     os.makedirs(DIST)
 
-    with open(os.path.join(DIST, "data.json"), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    manifest = []
+    for fc in funnels:
+        fid = fc.get("id") or "funnel"
+        data = build_funnel(fc, now)
+        fname = f"data-{fid}.json"
+        with open(os.path.join(DIST, fname), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        manifest.append({"id": fid, "menu_label": data["meta"]["menu_label"],
+                         "title": data["meta"]["title"], "file": fname})
+
+    with open(os.path.join(DIST, "funnels.json"), "w", encoding="utf-8") as f:
+        json.dump({"funnels": manifest,
+                   "generated_at_br": now.astimezone(BR_TZ).strftime("%d/%m/%Y %H:%M")},
+                  f, ensure_ascii=False)
 
     build_id = now.strftime("%Y%m%d%H%M%S")
     with open(os.path.join(SITE, "index.html"), encoding="utf-8") as f:
@@ -357,17 +399,10 @@ def main():
     html = html.replace("__BUILD_ID__", build_id)
     with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
         f.write(html)
-
     # Impede o Jekyll do GitHub Pages de reprocessar a pasta.
     open(os.path.join(DIST, ".nojekyll"), "w").close()
 
-    gross = sum(r["spend"] for r in ads)
-    log(f"OK — build {build_id}")
-    log(f"  periodo: {data['meta']['date_min']} a {data['meta']['date_max']}")
-    log(f"  gasto bruto R$ {gross:,.2f} | com imposto x{data['meta']['tax']} R$ {gross * data['meta']['tax']:,.2f}")
-    log(f"  vendas: {len(sales)} | receita R$ {sum(s['v'] for s in sales):,.2f}")
-    for w in warnings:
-        log(f"  ! {w}")
+    log(f"OK — build {build_id} · funis: {', '.join(m['id'] for m in manifest)}")
 
 
 if __name__ == "__main__":

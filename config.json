@@ -1,56 +1,117 @@
 {
-  "platform": "Meta Ads",
-  "title": "Funil de Captação — Novos Franqueados",
-  "currency": "BRL",
+  "_comment": "Hub de funis da ecosmetics. Cada item de 'funnels' vira um dashboard, trocavel pelo menu lateral. build.py gera um data-<id>.json por funil + funnels.json (manifesto).",
+  "funnels": [
+    {
+      "id": "vendadireta",
+      "menu_label": "Venda Direta",
+      "title": "Funil de Venda Direta",
+      "goal": 7,
+      "tabs": ["total", "traffic", "report"],
+      "platform": "Meta Ads",
+      "currency": "BRL",
+      "tax_multiplier": 1.1385,
 
-  "_comment_tax": "Imposto obrigatorio do Meta Ads. Multiplicador aplicado sobre o gasto bruto. TODAS as metricas usam o gasto COM imposto. Para Google Ads, troque para 1.0.",
-  "tax_multiplier": 1.1385,
+      "ads": {
+        "spreadsheet_id": "1Ey6QbhXqqUnoXD5CugqU6NH5hMGhV-XOZGLUAJA4ckE",
+        "sheet_name": "Página1",
+        "columns": {
+          "date": "Day",
+          "campaign": "Campaign Name",
+          "adset": "Ad Set Name",
+          "ad": "Ad Name",
+          "impressions": "Impressions",
+          "clicks": "Link Clicks",
+          "page_views": "Landing Page Views",
+          "checkouts": "Checkouts Initiated",
+          "spend": "Amount Spent"
+        }
+      },
 
-  "ads": {
-    "spreadsheet_id": "1oryJiE9fRhKNJQc4mItL1NZIhWWlwjL7UU_gpjOUySo",
-    "sheet_name": "Cap. Novos Franqueados",
-    "_comment_cols": "Esta conta nao exporta Landing Page Views nem Checkouts; esses nomes ficam so como fallback (viram 0). O funil util e Impressoes -> Cliques -> Leads.",
-    "columns": {
-      "date": "Day",
-      "campaign": "Campaign Name",
-      "adset": "Ad Set Name",
-      "ad": "Ad Name",
-      "impressions": "Impressions",
-      "clicks": "Link Clicks",
-      "page_views": "Landing Page Views",
-      "checkouts": "Checkouts Initiated",
-      "spend": "Amount Spent"
+      "sales": {
+        "spreadsheet_id": "1ARhDTJHv4keY1azI6xZ8R2eoHI0AogmsyofZIt9Aybg",
+        "sheet_name": "Venda Direta",
+        "columns": {
+          "date": "created_time",
+          "value": "",
+          "status": "lead_status",
+          "utm_source": "is_organic",
+          "utm_campaign": "campaign_name",
+          "utm_adset": "adset_name",
+          "utm_ad": "ad_name"
+        },
+        "approved_status": [],
+        "traffic_source": "false",
+
+        "_comment_qualified": "Lead qualificado = respondeu SIM nas DUAS perguntas (é cabeleireiro E ciente de que precisa ser profissional/ter salão).",
+        "qualified": {
+          "mode": "all",
+          "conditions": [
+            {"column": "você_é_cabeleireiro(a)?", "yes_values": ["sim"]},
+            {"column": "para_adquirir_os_produtos_profissionais_de_salões_você_precisa_ser_um_profissional_ou_ter_um_salão_de_beleza._você_está_ciente_disso?", "yes_values": ["sim"]}
+          ]
+        },
+
+        "breakdowns": [
+          {"key": "cabeleireiro", "label": "É cabeleireiro(a)?", "column": "você_é_cabeleireiro(a)?"},
+          {"key": "ciente", "label": "Ciente (precisa ser profissional/ter salão)?", "column": "para_adquirir_os_produtos_profissionais_de_salões_você_precisa_ser_um_profissional_ou_ter_um_salão_de_beleza._você_está_ciente_disso?"}
+        ]
+      }
+    },
+
+    {
+      "id": "captacao",
+      "menu_label": "Captação Novos Franqueados",
+      "title": "Funil de Captação — Novos Franqueados",
+      "goal": 70,
+      "tabs": ["total", "traffic", "regions", "report"],
+      "platform": "Meta Ads",
+      "currency": "BRL",
+      "tax_multiplier": 1.1385,
+
+      "ads": {
+        "spreadsheet_id": "1oryJiE9fRhKNJQc4mItL1NZIhWWlwjL7UU_gpjOUySo",
+        "sheet_name": "Cap. Novos Franqueados",
+        "columns": {
+          "date": "Day",
+          "campaign": "Campaign Name",
+          "adset": "Ad Set Name",
+          "ad": "Ad Name",
+          "impressions": "Impressions",
+          "clicks": "Link Clicks",
+          "page_views": "Landing Page Views",
+          "checkouts": "Checkouts Initiated",
+          "spend": "Amount Spent"
+        }
+      },
+
+      "sales": {
+        "spreadsheet_id": "169LN-zM6G7J58tn8IjfWwq2wxH3rZGCEGAMG-z6ybAk",
+        "sheet_name": "Form Cap. Franqueados 3.0",
+        "columns": {
+          "date": "created_time",
+          "value": "",
+          "status": "lead_status",
+          "utm_source": "is_organic",
+          "utm_campaign": "campaign_name",
+          "utm_adset": "adset_name",
+          "utm_ad": "ad_name"
+        },
+        "approved_status": [],
+        "traffic_source": "false",
+
+        "_comment_qualified": "Lead qualificado = respondeu SIM ao investimento minimo de R$50 mil.",
+        "qualified": {
+          "mode": "all",
+          "conditions": [
+            {"column": "o_valor_mínimo_de_investimento_é_de_r$50.000._está_dentro_da_sua_pretensão?", "yes_values": ["sim, está", "sim"]}
+          ]
+        },
+
+        "breakdowns": [
+          {"key": "atua", "label": "Já atua com franquia de produtos?", "column": "você_já_atua_com_franquia_de_produtos?"},
+          {"key": "invest", "label": "R$50 mil dentro da pretensão?", "column": "o_valor_mínimo_de_investimento_é_de_r$50.000._está_dentro_da_sua_pretensão?"}
+        ]
+      }
     }
-  },
-
-  "sales": {
-    "spreadsheet_id": "169LN-zM6G7J58tn8IjfWwq2wxH3rZGCEGAMG-z6ybAk",
-    "sheet_name": "Form Cap. Franqueados 3.0",
-    "_comment_leads": "Planilha e export nativo de Meta Lead Form: cada linha e um LEAD (nao venda). Nao ha valor monetario, entao 'value' fica vazio (=0) e as metricas de receita/ROAS nao se aplicam; a metrica que importa e o CAC = custo por lead (CPL). Campaign/adset/ad ja vem com o nome nativo do Meta e casam direto com a planilha de anuncios (sem UTM).",
-    "columns": {
-      "date": "created_time",
-      "value": "",
-      "status": "lead_status",
-      "utm_source": "is_organic",
-      "utm_campaign": "campaign_name",
-      "utm_adset": "adset_name",
-      "utm_ad": "ad_name"
-    },
-    "_comment_status": "Somente estes status contam como venda/lead. [] = conta TODAS as linhas (todo formulario enviado e um lead).",
-    "approved_status": [],
-    "_comment_traffic": "Separacao pago x organico via is_organic. Leads pagos = is_organic 'false' (case-insensitive); organicos (is_organic 'true') entram so como referencia, fora do funil/CPL.",
-    "traffic_source": "false",
-
-    "_comment_qualified": "Lead qualificado = respondeu SIM a pergunta do investimento minimo de R$50 mil. yes_values compara case-insensitive/sem espacos extras.",
-    "qualified": {
-      "column": "o_valor_mínimo_de_investimento_é_de_r$50.000._está_dentro_da_sua_pretensão?",
-      "yes_values": ["sim, está", "sim"]
-    },
-
-    "_comment_breakdowns": "Perguntas do formulario que viram graficos de pizza (distribuicao das respostas no periodo).",
-    "breakdowns": [
-      {"key": "atua", "label": "Já atua com franquia de produtos?", "column": "você_já_atua_com_franquia_de_produtos?"},
-      {"key": "invest", "label": "R$50 mil dentro da pretensão?", "column": "o_valor_mínimo_de_investimento_é_de_r$50.000._está_dentro_da_sua_pretensão?"}
-    ]
-  }
+  ]
 }
